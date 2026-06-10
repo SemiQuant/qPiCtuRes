@@ -1,0 +1,40 @@
+# macOS / editor cruft
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# Python build / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+wheels/
+*.whl
+*.tar.gz
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+.env
+
+# Tooling caches
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.ipynb_checkpoints/
+
+# Project-generated outputs
+results/
+*.html
+!docs/**/*.html

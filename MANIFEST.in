@@ -1,0 +1,17 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include pyproject.toml
+include qpictures/py.typed
+
+# Source distribution should not ship local outputs, raw data, or env files.
+prune data
+prune results
+prune build
+prune dist
+prune .github
+prune .venv
+recursive-exclude qpictures __pycache__
+recursive-exclude qpictures *.py[cod]
+global-exclude .DS_Store
+global-exclude *.egg-info

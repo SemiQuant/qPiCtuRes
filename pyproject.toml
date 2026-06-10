@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qpictures"
+version = "0.1.0"
+description = "Interactive plots and analyses for qPCR data exported from Thermo QuantStudio Design & Analysis."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "SemiQuant (Jason Limberis)", email = "JasonLimberis@ucsf.edu" }]
+maintainers = [{ name = "SemiQuant (Jason Limberis)", email = "JasonLimberis@ucsf.edu" }]
+keywords = [
+    "qpcr",
+    "rt-qpcr",
+    "plotly",
+    "bioinformatics",
+    "thermo",
+    "quantstudio",
+    "relative-quantification",
+    "standard-curve",
+    "absolute-quantification",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "plotly>=5.20",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# Static-image export (PDF/PNG/SVG) via Plotly. Kaleido pulls in a Chromium
+# bundle, so we keep it optional for users who only need the HTML output.
+export = ["kaleido>=0.2.1"]
+# Tooling for cutting a release: `pip install qpictures[dev]` will get you
+# everything needed to run tests and build a distribution.
+dev = [
+    "build>=1.2",
+    "twine>=5.0",
+    "pytest>=8.0",
+    "kaleido>=0.2.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/SemiQuant/qPiCtuRes"
+Source = "https://github.com/SemiQuant/qPiCtuRes"
+Issues = "https://github.com/SemiQuant/qPiCtuRes/issues"
+Changelog = "https://github.com/SemiQuant/qPiCtuRes/blob/main/CHANGELOG.md"
+
+[project.scripts]
+qpictures = "qpictures.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qpictures*"]
+
+[tool.setuptools.package-data]
+qpictures = ["py.typed"]
