@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Iterable, Mapping
 
 import numpy as np
@@ -15,6 +16,34 @@ if TYPE_CHECKING:
 
 # Default qualitative palette used to color "base" groups.
 _DEFAULT_PALETTE: tuple[str, ...] = tuple(pc.qualitative.Set2)
+
+# Default number of technical replicates per biological replicate. qPCR is
+# conventionally run in technical triplicate, so the biological-replicate count
+# N is estimated as ``ceil(n_wells / 3)``.
+_DEFAULT_TECH_REPLICATES = 3
+
+
+def _biological_n(n_wells: float | int | None, tech_replicates: int) -> int | None:
+    """Estimate the biological-replicate count ``N`` from well count ``n``.
+
+    Assumes each biological replicate is run in ``tech_replicates`` technical
+    wells. Uses ``ceil`` so a biological replicate still counts as long as not
+    *all* of its technical wells were omitted (e.g. with triplicates, n=8 -> 3).
+    """
+    if n_wells is None or pd.isna(n_wells):
+        return None
+    n_int = int(n_wells)
+    if tech_replicates is None or tech_replicates <= 1:
+        return n_int
+    return int(math.ceil(n_int / tech_replicates))
+
+
+def _n_tick_suffix(n_wells: float | int | None, tech_replicates: int) -> str:
+    """Compact ``<br>N = X`` tick-label suffix (empty when N can't be computed)."""
+    N = _biological_n(n_wells, tech_replicates)
+    if N is None:
+        return ""
+    return f"<br><span style='font-size:10px;color:#888'>N = {N}</span>"
 
 
 def _build_color_map(
@@ -43,7 +72,17 @@ def _build_color_map(
     return mapping
 
 
-def _format_hover(row: pd.Series) -> str:
+def _n_hover_line(row: pd.Series, tech_replicates: int | None) -> str:
+    """Hover line for replicate counts: technical wells plus estimated N."""
+    n_line = f"n = {int(row['n'])}"
+    if tech_replicates and tech_replicates > 1:
+        N = _biological_n(row.get("n"), tech_replicates)
+        if N is not None:
+            n_line += f"  ·  N = {N} (tech. ×{tech_replicates})"
+    return n_line
+
+
+def _format_hover(row: pd.Series, tech_replicates: int | None = None) -> str:
     stats_line = ""
     if "p_value" in row.index and pd.notna(row.get("p_value")):
         p = float(row["p_value"])
@@ -62,7 +101,7 @@ def _format_hover(row: pd.Series) -> str:
     return (
         f"<b>{row['Sample']}</b><br>"
         f"Target: {row['Target']}<br>"
-        f"n = {int(row['n'])}<br>"
+        f"{_n_hover_line(row, tech_replicates)}<br>"
         f"Cq = {row['Cq_mean']:.2f} ± {row['Cq_sd']:.2f}<br>"
         f"ΔCq = {row['dCq']:.2f} ± {row['dCq_sd']:.2f}<br>"
         f"RQ = {row['RQ']:.3g}"
@@ -101,6 +140,8 @@ def relative_quantity_barplot(
     log_y: bool = True,
     show_values: bool = True,
     show_signif: bool = True,
+    show_n: bool = True,
+    tech_replicates: int = _DEFAULT_TECH_REPLICATES,
     value_position: str = "inside",
     reference_color: str = "#7f7f7f",
     sample_color: str = "#1f77b4",
@@ -129,6 +170,13 @@ def relative_quantity_barplot(
     show_signif:
         If the input table has a ``signif`` column, draw the significance
         star above the value on each non-reference bar. Default ``True``.
+    show_n:
+        Annotate each x-axis tick with the estimated biological-replicate
+        count ``N`` (see ``tech_replicates``). Default ``True``.
+    tech_replicates:
+        Technical replicates assumed per biological replicate when estimating
+        ``N = ceil(n_wells / tech_replicates)``. Default ``3`` (triplicates).
+        Set to ``1`` to report raw well counts.
     value_position:
         Where to draw value labels — ``"inside"`` (default, at the top inside
         the bar), ``"outside"`` (above the error bar) or ``"auto"``.
@@ -166,7 +214,7 @@ def relative_quantity_barplot(
             colors.append(below_background_color)
         else:
             colors.append(sample_color)
-    hover_text = [_format_hover(row) for _, row in table.iterrows()]
+    hover_text = [_format_hover(row, tech_replicates) for _, row in table.iterrows()]
 
     # On a log axis, a zero/negative lower error bar is invalid. Clamp the
     # downward error so the bar can't drop to 0.
@@ -240,6 +288,17 @@ def relative_quantity_barplot(
     if reference:
         bits.append(f"vs reference <b>{reference}</b>")
     subtitle = " ".join(bits)
+    xaxis_kwargs: dict = dict(
+        title="Sample", tickangle=-30, categoryorder="array",
+        categoryarray=list(table["Sample"]),
+    )
+    if show_n and "n" in table.columns:
+        xaxis_kwargs["tickmode"] = "array"
+        xaxis_kwargs["tickvals"] = list(table["Sample"])
+        xaxis_kwargs["ticktext"] = [
+            f"{row['Sample']}{_n_tick_suffix(row.get('n'), tech_replicates)}"
+            for _, row in table.iterrows()
+        ]
     fig.update_layout(
         title=dict(
             text=title or f"Relative quantity ({subtitle})" if subtitle else "Relative quantity",
@@ -247,8 +306,7 @@ def relative_quantity_barplot(
             xanchor="left",
         ),
         template="plotly_white",
-        xaxis=dict(title="Sample", tickangle=-30, categoryorder="array",
-                   categoryarray=list(table["Sample"])),
+        xaxis=xaxis_kwargs,
         yaxis=dict(
             title="Relative quantity (2<sup>−ΔCq</sup>)",
             type="log" if log_y else "linear",
@@ -271,7 +329,9 @@ def relative_quantity_barplot(
     return fig
 
 
-def _format_hover_paired(row: pd.Series, condition: str) -> str:
+def _format_hover_paired(
+    row: pd.Series, condition: str, tech_replicates: int | None = None
+) -> str:
     stats_line = ""
     if "p_value" in row.index and pd.notna(row.get("p_value")):
         p = float(row["p_value"])
@@ -291,7 +351,7 @@ def _format_hover_paired(row: pd.Series, condition: str) -> str:
         f"<b>{row['Sample']}</b><br>"
         f"Base: {row['Base']}  ·  Condition: {condition}<br>"
         f"Target: {row['Target']}<br>"
-        f"n = {int(row['n'])}<br>"
+        f"{_n_hover_line(row, tech_replicates)}<br>"
         f"Cq = {row['Cq_mean']:.2f} ± {row['Cq_sd']:.2f}<br>"
         f"ΔCq = {row['dCq']:.2f} ± {row['dCq_sd']:.2f}<br>"
         f"vs reference: <b>{row['Reference_sample']}</b><br>"
@@ -310,6 +370,8 @@ def paired_relative_quantity_barplot(
     log_y: bool = True,
     show_values: bool = True,
     show_signif: bool = True,
+    show_n: bool = True,
+    tech_replicates: int = _DEFAULT_TECH_REPLICATES,
     value_position: str = "inside",
     condition_order: Iterable[str] | None = None,
     base_order: Iterable[str] | None = None,
@@ -339,6 +401,10 @@ def paired_relative_quantity_barplot(
     - ``show_per_group_reference``: each x-axis tick gets a small
       ``vs <ref_sample>`` line, so the specific sample each group is being
       compared against is spelled out.
+
+    When ``show_n`` is ``True`` (default), each bar also carries a small
+    ``N=<count>`` line, where ``N = ceil(n_wells / tech_replicates)`` estimates
+    the biological-replicate count (default ``tech_replicates=3`` triplicates).
     """
     if rq_table.empty:
         raise ValueError("Cannot plot an empty paired RQ table.")
@@ -390,9 +456,14 @@ def paired_relative_quantity_barplot(
         ):
             star = str(row["signif"])
         if star and value_text:
-            label_cache[key] = f"{star}<br>{value_text}"
+            label = f"{star}<br>{value_text}"
         else:
-            label_cache[key] = star or value_text
+            label = star or value_text
+        if show_n:
+            N = _biological_n(row.get("n"), tech_replicates)
+            if N is not None:
+                label = f"{label}<br>N={N}" if label else f"N={N}"
+        label_cache[key] = label
 
     has_bg = dim_below_background and "below_background" in table.columns
 
@@ -421,12 +492,13 @@ def paired_relative_quantity_barplot(
 
         text = [
             label_cache.get((base, c), "")
-            if (show_values or show_signif) and c in sub.index
+            if (show_values or show_signif or show_n) and c in sub.index
             else ""
             for c in conditions
         ]
         hover = [
-            _format_hover_paired(sub.loc[c], c) if c in sub.index else ""
+            _format_hover_paired(sub.loc[c], c, tech_replicates)
+            if c in sub.index else ""
             for c in conditions
         ]
 
@@ -477,7 +549,7 @@ def paired_relative_quantity_barplot(
                     color="#222",
                 ),
                 text=text,
-                textposition=value_position if (show_values or show_signif) else "none",
+                textposition=value_position if (show_values or show_signif or show_n) else "none",
                 insidetextanchor="end",
                 textangle=0,
                 textfont=dict(size=10, color=bar_text_colors),
@@ -781,7 +853,11 @@ def standard_curve_plot(
     return fig
 
 
-def _format_absolute_hover(row: pd.Series, curve: "StandardCurve | None" = None) -> str:
+def _format_absolute_hover(
+    row: pd.Series,
+    curve: "StandardCurve | None" = None,
+    tech_replicates: int | None = None,
+) -> str:
     extrap = ""
     if bool(row.get("extrapolated", False)):
         extrap = "<br><i>extrapolated outside the standard range</i>"
@@ -792,7 +868,7 @@ def _format_absolute_hover(row: pd.Series, curve: "StandardCurve | None" = None)
     return (
         f"<b>{row['Sample']}</b><br>"
         f"Target: {row['Target']}<br>"
-        f"n = {int(row['n'])}<br>"
+        f"{_n_hover_line(row, tech_replicates)}<br>"
         f"Cq = {row['Cq_mean']:.2f} ± {row['Cq_sd']:.2f}<br>"
         f"log<sub>10</sub>(Q) = {row['log10_Q']:.3f} ± {row['log10_Q_sd']:.3f}<br>"
         f"Q = {row['Quantity']:.4g} "
@@ -809,6 +885,8 @@ def absolute_quantity_barplot(
     sample_order: Iterable[str] | None = None,
     log_y: bool = True,
     show_values: bool = True,
+    show_n: bool = True,
+    tech_replicates: int = _DEFAULT_TECH_REPLICATES,
     value_position: str = "inside",
     sample_color: str = "#1f77b4",
     extrapolated_color: str = "#ff7f0e",
@@ -835,6 +913,11 @@ def absolute_quantity_barplot(
         Use a log-10 y-axis (typical for standard-curve outputs). Default ``True``.
     show_values:
         Draw the quantity value on each bar.
+    show_n:
+        Annotate each x-axis tick with the estimated biological-replicate
+        count ``N = ceil(n_wells / tech_replicates)``. Default ``True``.
+    tech_replicates:
+        Technical replicates assumed per biological replicate. Default ``3``.
     sample_color:
         Default bar color.
     extrapolated_color:
@@ -880,7 +963,10 @@ def absolute_quantity_barplot(
         else:
             colors.append(sample_color)
 
-    hover_text = [_format_absolute_hover(row, curve) for _, row in table.iterrows()]
+    hover_text = [
+        _format_absolute_hover(row, curve, tech_replicates)
+        for _, row in table.iterrows()
+    ]
 
     if log_y:
         q_safe_floor = np.clip(table["Quantity"].to_numpy() * 1e-6, 1e-300, None)
@@ -936,6 +1022,17 @@ def absolute_quantity_barplot(
     y_title = "Quantity"
     if quantity_unit:
         y_title = f"Quantity ({quantity_unit})"
+    xaxis_kwargs: dict = dict(
+        title="Sample", tickangle=-30,
+        categoryorder="array", categoryarray=list(table["Sample"]),
+    )
+    if show_n and "n" in table.columns:
+        xaxis_kwargs["tickmode"] = "array"
+        xaxis_kwargs["tickvals"] = list(table["Sample"])
+        xaxis_kwargs["ticktext"] = [
+            f"{row['Sample']}{_n_tick_suffix(row.get('n'), tech_replicates)}"
+            for _, row in table.iterrows()
+        ]
     fig.update_layout(
         title=dict(
             text=title or (
@@ -945,10 +1042,7 @@ def absolute_quantity_barplot(
             xanchor="left",
         ),
         template="plotly_white",
-        xaxis=dict(
-            title="Sample", tickangle=-30,
-            categoryorder="array", categoryarray=list(table["Sample"]),
-        ),
+        xaxis=xaxis_kwargs,
         yaxis=dict(
             title=y_title,
             type="log" if log_y else "linear",
@@ -984,6 +1078,8 @@ def standard_curve_with_quantities_figure(
     title: str | None = None,
     log_y: bool = True,
     show_values: bool = True,
+    show_n: bool = True,
+    tech_replicates: int = _DEFAULT_TECH_REPLICATES,
     quantity_unit: str | None = None,
     dim_below_background: bool = False,
     mark_extrapolated: bool = True,
@@ -1000,6 +1096,8 @@ def standard_curve_with_quantities_figure(
         target=curve.target,
         log_y=log_y,
         show_values=show_values,
+        show_n=show_n,
+        tech_replicates=tech_replicates,
         quantity_unit=quantity_unit,
         dim_below_background=dim_below_background,
         mark_extrapolated=mark_extrapolated,

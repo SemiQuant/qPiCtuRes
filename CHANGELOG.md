@@ -6,6 +6,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-10
+
+### Added
+
+- `qpictures paired --base-order` and `--condition-order` to control bar /
+  legend ordering and x-axis condition groups (comma-separated and/or repeated
+  flags; case-insensitive).
+- Biological-replicate count `N` annotated on every bar plot (`relative`,
+  `paired`, `standcurve`). qPCR is assumed to run in technical triplicate, so
+  `N = ceil(n_wells / tech_reps)` (default `tech_reps = 3`); a biological
+  replicate still counts as long as not all of its technical wells were
+  omitted. Configurable via `--tech-reps` and suppressible with `--no-n`
+  (Python API: `show_n` / `tech_replicates` on the bar-plot builders). `N` is
+  also shown alongside the raw well count `n` in each bar's hover tooltip.
+
+### Changed
+
+- CI publish workflow verifies that a release tag matches `pyproject.toml`
+  version before building.
+
+## [0.1.1] - 2026-06-16
+
+
 ## [0.1.0] - 2026-06-10
 
 Initial public release.
@@ -41,5 +64,7 @@ Initial public release.
 - Tolerant CSV parser that auto-skips the Design & Analysis metadata
   preamble and re-glues sample names containing unquoted commas.
 
-[Unreleased]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SemiQuant/qPiCtuRes/releases/tag/v0.1.0

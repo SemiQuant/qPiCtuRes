@@ -73,6 +73,57 @@ def _resolve_tasks(task_filter: tuple[str, ...], all_tasks: bool,
     return tuple(task_filter) if task_filter else default
 
 
+def _resolve_name_order(
+    requested: tuple[str, ...],
+    available: list[str],
+    *,
+    kind: str,
+) -> tuple[str, ...]:
+    """Map user-supplied names to canonical values (case-insensitive)."""
+    lowered = {a.lower(): a for a in available}
+    resolved: list[str] = []
+    for name in requested:
+        key = name.strip().lower()
+        if key not in lowered:
+            raise ValueError(
+                f"{kind} {name!r} not found. "
+                f"Available {kind.lower()}s: {sorted(available)}"
+            )
+        resolved.append(lowered[key])
+    return tuple(resolved)
+
+
+def _flatten_order_option(parts: tuple[str, ...]) -> tuple[str, ...]:
+    """Expand comma-separated and/or repeated order flags into one tuple."""
+    items: list[str] = []
+    for part in parts:
+        for piece in part.split(","):
+            piece = piece.strip()
+            if piece:
+                items.append(piece)
+    return tuple(items)
+
+
+def _n_options(func):
+    """Reusable decorator stack for biological-replicate (N) annotations.
+
+    qPCR is conventionally run in technical triplicate, so the biological
+    replicate count shown on the plot is estimated as ``N = ceil(n_wells / 3)``.
+    """
+    func = click.option(
+        "--tech-reps", "tech_replicates", type=click.IntRange(min=1),
+        default=3, show_default=True,
+        help="Technical replicates per biological replicate, used to estimate "
+             "N = ceil(n_wells / tech_reps) shown under each bar. Use 1 to "
+             "report raw well counts.",
+    )(func)
+    func = click.option(
+        "--no-n", "show_n", flag_value=False, default=True,
+        help="Don't annotate bars with the biological-replicate count N.",
+    )(func)
+    return func
+
+
 def _image_export_options(func):
     """Reusable decorator stack for static image export options."""
     func = click.option(
@@ -209,6 +260,7 @@ def inspect_cmd(input_csv: Path, keep_undetermined: bool,
 )
 @click.option("--no-signif", "show_signif", flag_value=False, default=True,
               help="Don't render significance stars on the plot.")
+@_n_options
 @click.option(
     "--background-rem", "background_rem",
     default=None, is_flag=False, flag_value="control",
@@ -232,6 +284,8 @@ def relative_cmd(
     stat_test: str,
     padjust: str,
     show_signif: bool,
+    show_n: bool,
+    tech_replicates: int,
     background_rem: str | None,
     task_filter: tuple[str, ...],
     all_tasks: bool,
@@ -269,6 +323,8 @@ def relative_cmd(
             title=title,
             log_y=log_y,
             show_signif=show_signif,
+            show_n=show_n,
+            tech_replicates=tech_replicates,
             dim_below_background=background_rem is not None,
         )
         bar.update(1)
@@ -367,6 +423,7 @@ def relative_cmd(
 )
 @click.option("--no-signif", "show_signif", flag_value=False, default=True,
               help="Don't render significance stars on the plot.")
+@_n_options
 @click.option(
     "--background-rem", "background_rem",
     default=None, is_flag=False, flag_value="control",
@@ -385,6 +442,17 @@ def relative_cmd(
          "`--reference-base` must match a *full* sample name "
          "(e.g. `BB_pbs`) — equivalent to a single-reference comparison.",
 )
+@click.option(
+    "--base-order", "base_order", multiple=True, default=(),
+    help="Explicit base ordering for bar colors / legend. Pass a "
+         "comma-separated list and/or repeat the flag. Case-insensitive. "
+         "Default: reference base first, then alphabetical.",
+)
+@click.option(
+    "--condition-order", "condition_order", multiple=True, default=(),
+    help="Explicit condition ordering on the x-axis. Pass a comma-separated "
+         "list and/or repeat the flag. Case-insensitive. Default: alphabetical.",
+)
 @_tasks_option()
 @_image_export_options
 def paired_cmd(
@@ -400,8 +468,12 @@ def paired_cmd(
     stat_test: str,
     padjust: str,
     show_signif: bool,
+    show_n: bool,
+    tech_replicates: int,
     background_rem: str | None,
     no_split: bool,
+    base_order: tuple[str, ...],
+    condition_order: tuple[str, ...],
     task_filter: tuple[str, ...],
     all_tasks: bool,
     pdf_out: str | None,
@@ -438,6 +510,33 @@ def paired_cmd(
             click.echo()
             console.print(f"[bold red]Error:[/bold red] {exc}")
             sys.exit(2)
+
+        resolved_base_order: tuple[str, ...] | None = None
+        resolved_condition_order: tuple[str, ...] | None = None
+        flat_base_order = _flatten_order_option(base_order)
+        flat_condition_order = _flatten_order_option(condition_order)
+        if flat_base_order:
+            try:
+                resolved_base_order = _resolve_name_order(
+                    flat_base_order,
+                    rq["Base"].dropna().unique().tolist(),
+                    kind="Base",
+                )
+            except ValueError as exc:
+                click.echo()
+                console.print(f"[bold red]Error:[/bold red] {exc}")
+                sys.exit(2)
+        if flat_condition_order:
+            try:
+                resolved_condition_order = _resolve_name_order(
+                    flat_condition_order,
+                    rq["Condition"].dropna().unique().tolist(),
+                    kind="Condition",
+                )
+            except ValueError as exc:
+                click.echo()
+                console.print(f"[bold red]Error:[/bold red] {exc}")
+                sys.exit(2)
         bar.update(1)
 
         fig = paired_relative_quantity_barplot(
@@ -447,7 +546,11 @@ def paired_cmd(
             log_y=log_y,
             title=title,
             show_signif=show_signif,
+            show_n=show_n,
+            tech_replicates=tech_replicates,
             dim_below_background=background_rem is not None,
+            base_order=resolved_base_order,
+            condition_order=resolved_condition_order,
         )
         bar.update(1)
 
@@ -570,6 +673,7 @@ def paired_cmd(
 @click.option("--title", default=None, help="Custom plot title.")
 @click.option("--unit", "quantity_unit", default=None,
               help="Optional unit string for the y-axis (e.g. 'copies/µL').")
+@_n_options
 @click.option("--standard-task", "standard_task", default="Standard", show_default=True,
               help="Task value identifying standard wells.")
 @click.option("--unknown-task", "unknown_task", default="Unknown", show_default=True,
@@ -602,6 +706,8 @@ def standcurve_cmd(
     open_browser: bool,
     title: str | None,
     quantity_unit: str | None,
+    show_n: bool,
+    tech_replicates: int,
     standard_task: str,
     unknown_task: str,
     background_rem: str | None,
@@ -658,6 +764,8 @@ def standcurve_cmd(
             abs_table,
             title=title,
             log_y=log_y,
+            show_n=show_n,
+            tech_replicates=tech_replicates,
             quantity_unit=quantity_unit,
             dim_below_background=background_rem is not None,
         )
@@ -666,6 +774,8 @@ def standcurve_cmd(
             abs_table,
             target=curve.target,
             log_y=log_y,
+            show_n=show_n,
+            tech_replicates=tech_replicates,
             quantity_unit=quantity_unit,
             dim_below_background=background_rem is not None,
             curve=curve,

@@ -65,6 +65,8 @@ Useful flags:
 | `--test` | `welch` | Per-sample significance test vs reference: `welch`, `student`, `mannwhitney`, `none`. |
 | `--padjust` | `none` | Multiple-testing correction: `none`, `bh` (FDR), `holm`, `bonferroni`. |
 | `--no-signif` | off | Hide significance stars on the plot. |
+| `--no-n` | off | Hide the biological-replicate count `N` annotated under each bar. |
+| `--tech-reps` | `3` | Technical replicates per biological replicate. `N = ceil(n_wells / tech_reps)`, so a replicate still counts unless *all* its technical wells were omitted. Use `1` to report raw well counts. |
 | `--background-rem [NAME]` | off | Use a named control sample as the background threshold. As a bare flag it looks up a sample called `control` (case-insensitive); pass an explicit name to override, e.g. `--background-rem PBS`. Any sample whose mean Cq exceeds the control's mean Cq is flagged with a `below_background` column and rendered as a dimmed grey bar. The control is **independent of `--reference`**, so you can normalize against one sample and threshold against another. |
 | `--task TEXT` (repeatable) | `Unknown` | Which `Task` values to keep. |
 | `--all-tasks` | off | Keep every `Task` (NTC / standards / etc.). |
@@ -103,8 +105,12 @@ qpictures paired data/ex1/WellResult-2026-06-09-144852.csv \
 | `--test` | `welch` | Per-pair significance test: `welch`, `student`, `mannwhitney`, `none`. |
 | `--padjust` | `none` | Multiple-testing correction: `none`, `bh` (FDR), `holm`, `bonferroni`. |
 | `--no-signif` | off | Hide significance stars on the plot. |
+| `--no-n` | off | Hide the biological-replicate count `N` annotated on each bar. |
+| `--tech-reps` | `3` | Technical replicates per biological replicate. `N = ceil(n_wells / tech_reps)`. Use `1` to report raw well counts. |
 | `--background-rem [NAME]` | off | Use a named control sample as a single global background threshold. Bare flag defaults to a sample called `control`; pass an explicit name (e.g. `--background-rem PBS`) to override. Lookup happens *before* the separator split, so a control sample without `_` (e.g. `Control`) is still found. Any (base, condition) row with a mean Cq above the control's mean Cq is flagged in `below_background` and dimmed in the plot. |
 | `--no-split` | off | Suppress splitting on `--separator`. Every sample is treated as its own base under one synthetic condition (`all`), and `--reference-base` must match a *full* sample name (e.g. `BB_pbs`). Equivalent to a single-reference comparison rendered through the paired layout. |
+| `--base-order TEXT` (repeatable) | auto | Explicit base ordering for bars / legend. Comma-separated and/or repeat the flag. Default: reference base first, then alphabetical. |
+| `--condition-order TEXT` (repeatable) | auto | Explicit condition ordering on the x-axis. Comma-separated and/or repeat the flag. Default: alphabetical. |
 | `--task TEXT` (repeatable) | `Unknown` | Which `Task` values to keep. |
 | `--all-tasks` | off | Keep every `Task`. |
 | `--no-log` | log10 on | Linear y-axis. |
@@ -215,6 +221,8 @@ The output HTML stacks two interactive panels:
 | `--standard-task TEXT` | `Standard` | `Task` value identifying the standards. |
 | `--unknown-task TEXT` | `Unknown` | `Task` value identifying the samples. |
 | `--background-rem [NAME]` | *(off)* | Use a named control sample (e.g. `Water`) as the background threshold; samples with mean Cq above it are flagged in `below_background` and dimmed. |
+| `--no-n` | *(off)* | Hide the biological-replicate count `N` annotated under each bar. |
+| `--tech-reps` | `3` | Technical replicates per biological replicate. `N = ceil(n_wells / tech_reps)`. Use `1` to report raw well counts. |
 | `--task TEXT` (repeatable) | *(none)* | Extra `Task` values to keep when reading the CSV (in addition to the standard and unknown tasks, which are always kept). |
 | `--no-log` | log10 on | Linear y-axis for the bar plot. |
 | `--no-open` | opens | Do not auto-open the HTML. |
