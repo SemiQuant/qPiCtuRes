@@ -6,14 +6,32 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-24
+
 ### Added
 
 - Bio-Rad CFX Maestro exports (CFX Opus, CFX96, ...) are accepted wherever a
   Well Results CSV is: the *Quantification Cq Results* CSV, the folder from
   *Export All Data Sheets*, or a zip of it. Handles semicolon-separated files
-  with decimal commas. `Content` codes map to the usual task labels and
+  with decimal commas, UTF-16 and Windows-1252 files, CFX Manager `C(t)`
+  columns and unquoted separators in sample names. `Content` codes map to the
+  usual task labels, a blank Target falls back to the dye and a blank Sample to
+  the Content code, a Biological Set Name is appended to the sample, and
   standard quantities come from the `SQ` column. New `read_bio_rad_cfx` in the
-  Python API. A `.pcrd` file gets an error explaining how to export.
+  Python API. A `.pcrd` file, or a folder or zip holding several runs, gets an
+  error explaining what to do.
+- Every command accepts a folder as INPUT (a CFX export folder); default
+  output names keep the folder's full name.
+- The offline web app (`qpictures.html`) reads CFX exports too, with an
+  Instrument choice (Auto-detect, QuantStudio, Bio-Rad CFX), sample renaming
+  in the Data tab, measures from the standard curve on the paired tab (RQ
+  corrected for efficiency, or quantity), and a new Grouped tab for groups of
+  biological replicates (z_1, z_2, z_3). These web-only analyses are not in the
+  Python package yet.
+
+### Fixed
+
+- A CSV with no Cq column now raises a clear error instead of failing later.
 
 ## [0.1.3] - 2026-11-24
 
@@ -92,7 +110,8 @@ Initial public release.
 - Tolerant CSV parser that auto-skips the Design & Analysis metadata
   preamble and re-glues sample names containing unquoted commas.
 
-[Unreleased]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/SemiQuant/qPiCtuRes/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.3...v1.2.0
 [0.1.3]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.0...v0.1.1

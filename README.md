@@ -16,14 +16,21 @@ SDs (Livak & Schmittgen, 2008).
 
 No Python? Download [`qpictures.html`](https://github.com/SemiQuant/qPiCtuRes/releases/latest/download/qpictures.html)
 from the latest release and open it in Chrome, Edge, Firefox or Safari. Drop a
-Well Results CSV or the `.eds` run file on it and you get the same relative,
-paired and standard-curve analyses as the CLI, with interactive charts (PNG and
-SVG downloads), a plate map to leave wells out and drag-to-reorder bars.
+QuantStudio Well Results CSV or `.eds` run file, or a Bio-Rad CFX export (the
+Cq Results CSV or a zip of the export folder), on it and you get the same
+relative, paired and standard-curve analyses as the CLI, with interactive charts
+(PNG and SVG downloads), a plate map to leave wells out, sample renaming and
+drag-to-reorder bars.
+
+The page also has analyses the CLI does not (yet): paired comparisons from the
+standard curve (RQ corrected for efficiency, or quantities), and a Grouped tab
+that treats samples like z_1, z_2, z_3 as biological replicates of group z and
+compares groups with n = biological replicates.
 
 The page is a single file that runs entirely in the browser: it needs no
 internet connection, and your data never leave your computer. Its calculations
-are tested against this package (the same tables to 13 significant digits, the
-same p-values to 9). It is built as one of the DrDx.Me offline tools.
+shared with this package are tested against it (the same tables to 13
+significant digits, the same p-values to 9). It is built as one of the DrDx.Me offline tools.
 
 ## Install
 
