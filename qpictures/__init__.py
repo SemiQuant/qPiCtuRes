@@ -18,7 +18,7 @@ from .analysis import (
     paired_relative_quantification,
     relative_quantification,
 )
-from .io import read_thermo_eds, read_thermo_well_results
+from .io import read_bio_rad_cfx, read_thermo_eds, read_thermo_well_results
 from .plot import (
     absolute_quantity_barplot,
     paired_relative_quantity_barplot,
@@ -31,6 +31,7 @@ __all__ = [
     "__version__",
     "read_thermo_well_results",
     "read_thermo_eds",
+    "read_bio_rad_cfx",
     "relative_quantification",
     "paired_relative_quantification",
     "fit_standard_curve",

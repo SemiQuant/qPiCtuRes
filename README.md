@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Interactive plots and analyses for qPCR data exported from Thermo Fisher
-QuantStudio Design & Analysis.
+QuantStudio Design & Analysis or Bio-Rad CFX Maestro (CFX Opus, CFX96, ...).
 
 The first module turns a *Well Results* CSV into an interactive Plotly bar plot
 of **relative quantities** (RQ = 2<sup>−ΔCq</sup>) against a chosen reference
@@ -55,8 +55,9 @@ qpictures paired     <input> -b BB    [-t atpE]   # per-condition paired RQ
 qpictures standcurve <input>          [-t atpE]   # absolute Q from a std curve
 ```
 
-`<input>` is either a *Well Results* CSV or the `.eds` run file itself
-(see [Reading `.eds` files](#reading-eds-files)).
+`<input>` is a QuantStudio *Well Results* CSV, the `.eds` run file itself
+(see [Reading `.eds` files](#reading-eds-files)), or a Bio-Rad CFX export
+(see [Reading Bio-Rad CFX exports](#reading-bio-rad-cfx-exports)).
 
 ### `relative` — single reference sample
 
@@ -421,3 +422,40 @@ filters work on both.
   warning is printed: the Cq values are the stored ones and may shift slightly
   once re-analysed.
 - Wells omitted in the software stay omitted (`Omit == true`).
+
+## Reading Bio-Rad CFX exports
+
+Runs from a CFX Opus (or any instrument run in CFX Maestro / CFX Manager) are
+read from the CSV export. In CFX Maestro use **Export > Export All Data
+Sheets** with CSV output, then give qpictures the export folder, a zip of it,
+or the *Quantification Cq Results* CSV (`read_bio_rad_cfx()` reads one
+explicitly):
+
+```bash
+qpictures standcurve "23 Nov qPCR TurboLyser.zip"
+qpictures relative "23 Nov qPCR TurboLyser/" -r Z1
+```
+
+- Semicolon-separated files with decimal commas (European locale settings)
+  are read as well as comma-separated ones, in UTF-8, UTF-16 or Windows-1252.
+  Older CFX Manager exports with a `C(t)` column work too.
+- A folder or zip must hold one run. With several, qpictures stops and lists
+  them; pass the CSV you want.
+- The *Quantification Summary* CSV has no sample names, so read the
+  *Quantification Cq Results* CSV (qpictures warns if names are missing).
+- `Content` sets the task: `Unkn` is `Unknown`, `Std` is `Standard`, `NTC` is
+  `Negative Control (NTC)`, and `Pos Ctrl`, `Neg Ctrl` and `NRT` map likewise,
+  so the same `--task` filters work as for QuantStudio files.
+- A blank `Target` falls back to the fluorophore (e.g. `SYBR`), and a blank
+  `Sample` falls back to the `Content` code (e.g. `Std-01`).
+- A `Biological Set Name` is appended to the sample (`P1` in set `Day1`
+  becomes `P1_Day1`), so sets stay apart and `paired` can use the set as the
+  condition.
+- Standard quantities come from the `Starting Quantity (SQ)` column. CFX's own
+  back-calculated quantities for unknowns are ignored; qpictures fits its own
+  curve, which matches CFX's slope, intercept, efficiency and R². Its per-sample
+  quantity is the geometric mean of the replicates, so it can differ from
+  CFX's `SQ Mean` (an arithmetic mean) by a fraction of a percent.
+- Wells excluded in CFX Maestro are left out of the export, so there is
+  nothing to omit.
+- The `.pcrd` run file is encrypted and cannot be read; export the CSVs.

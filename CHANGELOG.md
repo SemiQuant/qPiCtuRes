@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
 
 ## [Unreleased]
 
+### Added
+
+- Bio-Rad CFX Maestro exports (CFX Opus, CFX96, ...) are accepted wherever a
+  Well Results CSV is: the *Quantification Cq Results* CSV, the folder from
+  *Export All Data Sheets*, or a zip of it. Handles semicolon-separated files
+  with decimal commas. `Content` codes map to the usual task labels and
+  standard quantities come from the `SQ` column. New `read_bio_rad_cfx` in the
+  Python API. A `.pcrd` file gets an error explaining how to export.
+
 ## [0.1.3] - 2026-11-24
 
 ### Added

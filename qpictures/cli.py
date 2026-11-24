@@ -36,7 +36,7 @@ _AUTO_PATH = "<auto>"
 
 
 def _read_input(path: Path, **kwargs) -> pd.DataFrame:
-    """Read a Well-Results CSV or .eds file, reporting problems without a traceback."""
+    """Read a Well-Results CSV, .eds file or CFX export, reporting problems without a traceback."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         try:
@@ -49,6 +49,14 @@ def _read_input(path: Path, **kwargs) -> pd.DataFrame:
         click.echo()
         console.print(f"[bold yellow]Warning:[/bold yellow] {w.message}")
     return df
+
+
+def _default_out(input_path: Path, kind: str) -> Path:
+    """``run.csv`` -> ``run.<kind>.html``; a folder ``exp 1.5/`` -> ``exp 1.5.<kind>.html`` beside it."""
+    input_path = input_path.resolve()
+    if input_path.is_dir():
+        return input_path.parent / f"{input_path.name}.{kind}.html"
+    return input_path.with_suffix(f".{kind}.html")
 
 
 def _resolve_image_path(value: str | None, html_path: Path, ext: str) -> Path | None:
@@ -216,13 +224,13 @@ def cli() -> None:
 
 
 @cli.command("inspect")
-@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, path_type=Path))
 @click.option("--keep-undetermined", is_flag=True,
               help="Keep wells with Undetermined Cq in the table.")
 @_tasks_option()
 def inspect_cmd(input_csv: Path, keep_undetermined: bool,
                 task_filter: tuple[str, ...], all_tasks: bool) -> None:
-    """Show a quick summary of a Thermo Well-Results CSV or .eds run file."""
+    """Show a quick summary of a Well-Results CSV, .eds run file or CFX export."""
     tasks = _resolve_tasks(task_filter, all_tasks)
     with click.progressbar(length=3, label="Reading", show_eta=False) as bar:
         df = _read_input(
@@ -246,7 +254,7 @@ def inspect_cmd(input_csv: Path, keep_undetermined: bool,
 
 
 @cli.command("relative")
-@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, path_type=Path))
 @click.option("-r", "--reference", required=True,
               help="Reference sample name (case-insensitive). Example: BB_PBS.")
 @click.option("-t", "--target", default=None,
@@ -310,8 +318,8 @@ def relative_cmd(
     png_out: str | None,
     svg_out: str | None,
 ) -> None:
-    """Build a relative-quantity bar plot from a Thermo Well-Results CSV or .eds file."""
-    out_html = out_html or input_csv.with_suffix(".relative.html")
+    """Build a relative-quantity bar plot from a Well-Results CSV, .eds file or CFX export."""
+    out_html = out_html or _default_out(input_csv, "relative")
     tasks = _resolve_tasks(task_filter, all_tasks)
 
     steps = ["read", "analyze", "plot", "write"]
@@ -407,7 +415,7 @@ def relative_cmd(
 
 
 @cli.command("paired")
-@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, path_type=Path))
 @click.option("-b", "--reference-base", required=True,
               help='Reference base prefix (case-insensitive). Example: "BB".')
 @click.option("-s", "--separator", default="_", show_default=True,
@@ -503,7 +511,7 @@ def paired_cmd(
     normalizes every base in each condition against the reference base in the
     *same* condition (e.g. ``TL_pbs`` vs ``BB_pbs``).
     """
-    out_html = out_html or input_csv.with_suffix(".paired.html")
+    out_html = out_html or _default_out(input_csv, "paired")
     tasks = _resolve_tasks(task_filter, all_tasks)
     steps = ["read", "analyze", "plot", "write"]
     with click.progressbar(steps, label="qpictures paired",
@@ -660,7 +668,7 @@ def paired_cmd(
 
 
 @cli.command("standcurve")
-@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, path_type=Path))
 @click.option("-t", "--target", default=None,
               help="Target / assay to analyze. Auto-detected if only one is present.")
 @click.option("-o", "--out", "out_html", type=click.Path(dir_okay=False, path_type=Path),
@@ -741,7 +749,7 @@ def standcurve_cmd(
     Emits a combined HTML with the standard curve on top and a bar plot of
     estimated absolute quantities (with propagated error bars) on the bottom.
     """
-    out_html = out_html or input_csv.with_suffix(".standcurve.html")
+    out_html = out_html or _default_out(input_csv, "standcurve")
     tasks = tuple(sorted({standard_task, unknown_task, *extra_tasks}))
 
     steps = ["read", "fit", "quantify", "plot", "write"]

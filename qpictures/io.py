@@ -1,6 +1,6 @@
-"""Readers for Thermo Fisher (QuantStudio Design & Analysis) qPCR exports.
+"""Readers for Thermo Fisher (QuantStudio Design & Analysis) and Bio-Rad CFX qPCR exports.
 
-Two inputs are supported:
+Three inputs are supported:
 
 * The "Well Results" CSV that Design & Analysis produces. It is *mostly*
   well-behaved, but sample names are not always quoted, so a value like
@@ -10,6 +10,8 @@ Two inputs are supported:
   standard quantities come from the plate setup; Cq values from the analysis
   stored in the file, so the run must have been analysed and saved in Design &
   Analysis.
+* A Bio-Rad CFX Maestro export (CFX Opus, CFX96, ...): the *Quantification
+  Cq Results* CSV, the folder from *Export All Data Sheets*, or a zip of it.
 """
 
 from __future__ import annotations
@@ -152,17 +154,23 @@ def read_thermo_well_results(
         ``Amp Score``, ``Threshold`` (floats) and a boolean ``Omit``.
     """
     path = Path(path)
-    if _is_eds(path):
-        return read_thermo_eds(
-            path,
-            drop_omitted=drop_omitted,
-            keep_undetermined=keep_undetermined,
-            tasks=tasks,
+    filters = dict(drop_omitted=drop_omitted, keep_undetermined=keep_undetermined, tasks=tasks)
+    if path.suffix.lower() == ".pcrd":
+        raise ValueError(
+            f"{path.name} is a CFX Maestro run file, which is encrypted and cannot be "
+            "read. In CFX Maestro use Export > Export All Data Sheets (CSV) and give "
+            "qpictures the export folder, its zip, or the 'Quantification Cq Results' CSV."
         )
+    if path.is_dir() or _is_cfx_zip(path):
+        return read_bio_rad_cfx(path, **filters)
+    if _is_eds(path):
+        return read_thermo_eds(path, **filters)
 
-    text = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    text = _decode(path.read_bytes()).splitlines()
     if not text:
         raise ValueError(f"{path} is empty")
+    if _looks_like_cfx(text):
+        return read_bio_rad_cfx(path, **filters)
 
     header_idx = _find_header_row(text)
     payload = "\n".join(text[header_idx:])
@@ -185,6 +193,11 @@ def read_thermo_well_results(
         if df[col].dtype == object:
             df[col] = df[col].astype(str).str.strip()
 
+    if "Cq" not in df.columns:
+        raise ValueError(
+            f"{path.name} has no Cq column. qpictures reads QuantStudio Well Results "
+            "CSVs, .eds run files and Bio-Rad CFX 'Quantification Cq Results' CSVs."
+        )
     if "Omit" in df.columns:
         df["Omit"] = df["Omit"].str.lower().eq("true")
 
@@ -343,6 +356,244 @@ def read_thermo_eds(
         raise ValueError(f"{path} has no analysed wells with a target in the plate setup")
     df = df.sort_values(["_idx", "Target"], kind="stable").drop(columns="_idx")
 
+    return _filter_wells(
+        df, drop_omitted=drop_omitted, keep_undetermined=keep_undetermined, tasks=tasks
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Bio-Rad CFX (CFX Maestro) exports
+# --------------------------------------------------------------------------- #
+
+# The CFX Maestro sheets we read, best first. "Quantification Cq Results" has
+# sample names and starting quantities; "Quantification Summary" has no sample
+# names, so it is only used when given directly.
+_CFX_SHEET = "Quantification Cq Results"
+_CFX_SHEETS = (_CFX_SHEET, "Quantification Summary")
+
+# Header names for the Cq column across CFX Maestro and older CFX Manager.
+_CFX_CQ_COLUMNS = ("Cq", "C(t)", "Ct")
+
+# CFX "Content" codes -> the Task labels used elsewhere in qpictures.
+_CFX_CONTENT = {
+    "unkn": "Unknown",
+    "std": "Standard",
+    "ntc": "Negative Control (NTC)",
+    "pos ctrl": "Positive Control",
+    "neg ctrl": "Negative Control",
+    "nrt": "No RT Control",
+}
+
+_DECIMAL_COMMA = re.compile(r"^-?\d+,\d+$")
+
+
+def _decode(data: bytes) -> str:
+    """Decode an export: UTF-16 or UTF-8 (with or without BOM), else Windows-1252."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
+def _is_cfx_zip(path: Path) -> bool:
+    """True if ``path`` is a zip (not an ``.eds``) holding a CFX quantification CSV."""
+    if path.suffix.lower() == ".eds" or not zipfile.is_zipfile(path):
+        return False
+    with zipfile.ZipFile(path) as z:
+        return any(_CFX_SHEET.lower() in n.lower() and n.lower().endswith(".csv")
+                   for n in z.namelist())
+
+
+def _split_header(line: str) -> tuple[str, list[str]]:
+    delim = ";" if line.count(";") > line.count(",") else "\t" if "\t" in line else ","
+    return delim, [c.strip().strip('"').lower() for c in line.split(delim)]
+
+
+def _is_cfx_header(cols: list[str]) -> bool:
+    return {"well", "content"} <= set(cols) and any(c.lower() in cols for c in _CFX_CQ_COLUMNS)
+
+
+def _looks_like_cfx(lines: list[str]) -> bool:
+    """A CFX sheet has ``Well``, ``Content`` and ``Cq`` columns (QuantStudio has no ``Content``)."""
+    return any(_is_cfx_header(_split_header(line)[1]) for line in lines[:20])
+
+
+def _one_sheet(matches: list[str], where: str) -> str | None:
+    """Pick the single matching sheet; refuse to choose silently between runs."""
+    if len(matches) > 1:
+        listed = "\n  ".join(matches)
+        raise ValueError(
+            f"{where} holds more than one CFX '{_CFX_SHEET}' CSV:\n  {listed}\n"
+            "Pass the CSV of the run you want."
+        )
+    return matches[0] if matches else None
+
+
+def _cfx_sheet_text(path: Path) -> tuple[str, str]:
+    """Return ``(name, text)`` of the CFX quantification sheet at ``path``.
+
+    ``path`` may be the CSV itself, the export folder, or a zip of it. A folder
+    or zip must hold exactly one *Quantification Cq Results* CSV (a folder is
+    searched at the top level and one level down).
+    """
+    missing = (
+        f"No CFX '{_CFX_SHEET}' CSV found in {path.name}. Export it from CFX "
+        "Maestro with Export > Export All Data Sheets (CSV)."
+    )
+    if path.is_dir():
+        files = [p for pattern in ("*.csv", "*/*.csv") for p in path.glob(pattern)
+                 if not p.name.startswith("._") and "__macosx" not in str(p).lower()]
+        hit = _one_sheet(sorted(str(p) for p in files if _CFX_SHEET.lower() in p.name.lower()),
+                         str(path))
+        if hit is None:
+            raise ValueError(missing)
+        return Path(hit).name, _decode(Path(hit).read_bytes())
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as z:
+            names = [n for n in z.namelist()
+                     if n.lower().endswith(".csv") and not Path(n).name.startswith("._")
+                     and "__macosx" not in n.lower()]
+            hit = _one_sheet(sorted(n for n in names if _CFX_SHEET.lower() in Path(n).name.lower()),
+                             path.name)
+            if hit is None:
+                raise ValueError(missing)
+            return Path(hit).name, _decode(z.read(hit))
+    return path.name, _decode(path.read_bytes())
+
+
+def _cfx_number(value: str, decimal_comma: bool) -> float:
+    token = (value or "").strip()
+    if decimal_comma and "," in token:
+        token = token.replace(".", "").replace(",", ".")
+    return _to_float(token)
+
+
+def _cfx_well(well: str) -> str:
+    """``A01`` -> ``A1`` (the well names QuantStudio files use)."""
+    m = re.fullmatch(r"\s*([A-Pa-p])0*(\d+)\s*", well or "")
+    return f"{m.group(1).upper()}{m.group(2)}" if m else (well or "").strip()
+
+
+def _cfx_task(content: str) -> str:
+    base = re.sub(r"[-\s]*\d+$", "", (content or "").strip()).strip().lower()
+    return _CFX_CONTENT.get(base, (content or "").strip())
+
+
+def read_bio_rad_cfx(
+    path: str | Path,
+    *,
+    drop_omitted: bool = True,
+    keep_undetermined: bool = False,
+    tasks: Iterable[str] | None = ("Unknown",),
+) -> pd.DataFrame:
+    """Read a Bio-Rad CFX (CFX Maestro, e.g. CFX Opus) export into a tidy DataFrame.
+
+    ``path`` is the *Quantification Cq Results* CSV, the folder written by
+    *Export All Data Sheets*, or a zip of that folder. A folder or zip must
+    hold one run. Semicolon-delimited exports with decimal commas (European
+    locale settings), UTF-16 and Windows-1252 files are handled. The
+    *Quantification Summary* CSV can be read too, but it has no sample names.
+
+    The result has the same columns as :func:`read_thermo_well_results` plus
+    ``Quantity`` and ``Content``, so it feeds the relative, paired and
+    standard-curve analyses unchanged:
+
+    * ``Content`` codes map to ``Task``: ``Unkn`` -> Unknown, ``Std`` ->
+      Standard, ``NTC`` -> Negative Control (NTC), ``Pos Ctrl``, ``Neg Ctrl``
+      and ``NRT`` likewise.
+    * A blank ``Target`` falls back to the ``Fluor`` (e.g. ``SYBR``); a blank
+      ``Sample`` falls back to the ``Content`` code (e.g. ``Std-01``).
+    * A non-blank ``Biological Set Name`` is appended to the sample
+      (``Sample_Set``), so the same sample in two sets stays two groups and
+      ``paired`` can use the set as the condition.
+    * ``Quantity`` is the starting quantity CFX holds for standards; it is
+      NaN for other wells (CFX's own back-calculated values are ignored).
+    * Wells excluded in CFX Maestro are absent from the export, so ``Omit``
+      is always ``False``.
+
+    Parameters
+    ----------
+    path:
+        CSV, export folder or zip as above.
+    drop_omitted, keep_undetermined, tasks:
+        As for :func:`read_thermo_well_results`.
+    """
+    path = Path(path)
+    name, text = _cfx_sheet_text(path)
+    lines = text.splitlines()
+    header_idx = next(
+        (i for i, line in enumerate(lines) if _is_cfx_header(_split_header(line)[1])), None
+    )
+    if header_idx is None:
+        raise ValueError(f"{name} is not a CFX quantification sheet (no Well/Content/Cq header)")
+    delim, _ = _split_header(lines[header_idx])
+    rows = list(csv.reader(_io.StringIO("\n".join(lines[header_idx:])), delimiter=delim))
+    header = [h.strip() for h in rows[0]]
+    col = {h.lower(): i for i, h in enumerate(header) if h}
+    sample_idx = col.get("sample")
+
+    def get(row: list[str], *names: str) -> str:
+        for n in names:
+            i = col.get(n.lower())
+            if i is not None and i < len(row):
+                return row[i].strip()
+        return ""
+
+    body: list[list[str]] = []
+    for raw in rows[1:]:
+        if not raw or all(not c.strip() for c in raw):
+            continue
+        extra = len(raw) - len(header)
+        if extra > 0:
+            # An unquoted delimiter inside a sample name: glue it back together.
+            if sample_idx is None:
+                raise ValueError(f"{name}: a row has more fields than the header: {raw}")
+            raw = (raw[:sample_idx] + [delim.join(raw[sample_idx:sample_idx + extra + 1])]
+                   + raw[sample_idx + extra + 1:])
+        if get(raw, "Well"):
+            body.append(raw)
+
+    # Decimal mark: commas when the separator is not a comma, or when a comma file
+    # quotes its numbers ("15,44").
+    cq_cells = [get(r, *_CFX_CQ_COLUMNS) for r in body]
+    decimal_comma = delim != "," or any(_DECIMAL_COMMA.match(c) for c in cq_cells)
+
+    records: list[dict] = []
+    for raw in body:
+        content = get(raw, "Content")
+        task = _cfx_task(content)
+        fluor = get(raw, "Fluor")
+        sample = get(raw, "Sample") or content
+        bioset = get(raw, "Biological Set Name")
+        if bioset:
+            sample = f"{sample}_{bioset}"
+        sq = _cfx_number(get(raw, "Starting Quantity (SQ)", "SQ"), decimal_comma)
+        records.append({
+            "Well": _cfx_well(get(raw, "Well")),
+            "Omit": False,
+            "Sample": sample,
+            "Target": get(raw, "Target") or fluor,
+            "Task": task,
+            "Dyes": fluor,
+            "Cq": _cfx_number(get(raw, *_CFX_CQ_COLUMNS), decimal_comma),
+            "Content": content,
+            "Biological Set Name": bioset,
+            "Quantity": sq if task == "Standard" and sq > 0 else float("nan"),
+            "Well Note": get(raw, "Well Note"),
+        })
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        raise ValueError(f"{name} has no wells")
+    named = df["Task"] != "Standard"
+    if sample_idx is None or (named.any() and (df.loc[named, "Sample"] == df.loc[named, "Content"]).all()):
+        warnings.warn(
+            f"{name} has no sample names, so wells are labelled by their CFX Content "
+            f"code (e.g. Unkn-01). The '{_CFX_SHEET}' CSV carries the sample names.",
+            stacklevel=2,
+        )
     return _filter_wells(
         df, drop_omitted=drop_omitted, keep_undetermined=keep_undetermined, tasks=tasks
     )
