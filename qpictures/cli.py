@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 import click
@@ -32,6 +33,22 @@ console = Console()
 # --svg. When the flag is given on its own (no value), Click sets the option to
 # this string, which we then expand to ``out_html.with_suffix(".pdf")`` etc.
 _AUTO_PATH = "<auto>"
+
+
+def _read_input(path: Path, **kwargs) -> pd.DataFrame:
+    """Read a Well-Results CSV or .eds file, reporting problems without a traceback."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            df = read_thermo_well_results(path, **kwargs)
+        except ValueError as exc:
+            click.echo()
+            console.print(f"[bold red]Error:[/bold red] {exc}")
+            sys.exit(2)
+    for w in caught:
+        click.echo()
+        console.print(f"[bold yellow]Warning:[/bold yellow] {w.message}")
+    return df
 
 
 def _resolve_image_path(value: str | None, html_path: Path, ext: str) -> Path | None:
@@ -199,16 +216,16 @@ def cli() -> None:
 
 
 @cli.command("inspect")
-@click.argument("input_csv", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--keep-undetermined", is_flag=True,
               help="Keep wells with Undetermined Cq in the table.")
 @_tasks_option()
 def inspect_cmd(input_csv: Path, keep_undetermined: bool,
                 task_filter: tuple[str, ...], all_tasks: bool) -> None:
-    """Show a quick summary of a Thermo Well-Results CSV."""
+    """Show a quick summary of a Thermo Well-Results CSV or .eds run file."""
     tasks = _resolve_tasks(task_filter, all_tasks)
     with click.progressbar(length=3, label="Reading", show_eta=False) as bar:
-        df = read_thermo_well_results(
+        df = _read_input(
             input_csv, keep_undetermined=keep_undetermined, tasks=tasks
         )
         bar.update(1)
@@ -229,7 +246,7 @@ def inspect_cmd(input_csv: Path, keep_undetermined: bool,
 
 
 @cli.command("relative")
-@click.argument("input_csv", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-r", "--reference", required=True,
               help="Reference sample name (case-insensitive). Example: BB_PBS.")
 @click.option("-t", "--target", default=None,
@@ -293,7 +310,7 @@ def relative_cmd(
     png_out: str | None,
     svg_out: str | None,
 ) -> None:
-    """Build a relative-quantity bar plot from a Thermo Well-Results CSV."""
+    """Build a relative-quantity bar plot from a Thermo Well-Results CSV or .eds file."""
     out_html = out_html or input_csv.with_suffix(".relative.html")
     tasks = _resolve_tasks(task_filter, all_tasks)
 
@@ -301,7 +318,7 @@ def relative_cmd(
     with click.progressbar(steps, label="qpictures relative",
                            item_show_func=lambda s: s or "") as bar:
         bar.update(0)
-        df = read_thermo_well_results(input_csv, tasks=tasks)
+        df = _read_input(input_csv, tasks=tasks)
         bar.update(1)
 
         try:
@@ -390,7 +407,7 @@ def relative_cmd(
 
 
 @cli.command("paired")
-@click.argument("input_csv", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-b", "--reference-base", required=True,
               help='Reference base prefix (case-insensitive). Example: "BB".')
 @click.option("-s", "--separator", default="_", show_default=True,
@@ -492,7 +509,7 @@ def paired_cmd(
     with click.progressbar(steps, label="qpictures paired",
                            item_show_func=lambda s: s or "") as bar:
         bar.update(0)
-        df = read_thermo_well_results(input_csv, tasks=tasks)
+        df = _read_input(input_csv, tasks=tasks)
         bar.update(1)
 
         try:
@@ -643,7 +660,7 @@ def paired_cmd(
 
 
 @cli.command("standcurve")
-@click.argument("input_csv", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("input_csv", metavar="INPUT", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-t", "--target", default=None,
               help="Target / assay to analyze. Auto-detected if only one is present.")
 @click.option("-o", "--out", "out_html", type=click.Path(dir_okay=False, path_type=Path),
@@ -731,7 +748,7 @@ def standcurve_cmd(
     with click.progressbar(steps, label="qpictures standcurve",
                            item_show_func=lambda s: s or "") as bar:
         bar.update(0)
-        df = read_thermo_well_results(input_csv, tasks=tasks)
+        df = _read_input(input_csv, tasks=tasks)
         bar.update(1)
 
         try:

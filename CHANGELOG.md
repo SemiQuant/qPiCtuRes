@@ -6,6 +6,25 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-24
+
+### Added
+
+- QuantStudio Design & Analysis `.eds` run files are accepted wherever a Well
+  Results CSV is (every CLI command and `read_thermo_well_results`). Sample
+  names, tasks and standard quantities come from the plate setup, Cq values
+  from the analysis stored in the file. New `read_thermo_eds` in the Python
+  API. A file with no stored analysis raises an error asking for it to be
+  analysed and saved; an out-of-date analysis raises a warning.
+- An offline web app: `qpictures.html`, attached to each GitHub release, runs
+  the relative, paired and standard-curve analyses in the browser from a CSV or
+  `.eds` file, with a plate map to leave wells out. No install, no network.
+
+### Fixed
+
+- `.eds` files from 48-well blocks get 6 x 8 well names (they were laid out as
+  96-well plates).
+
 ## [0.1.2] - 2026-07-10
 
 ### Added
@@ -64,7 +83,8 @@ Initial public release.
 - Tolerant CSV parser that auto-skips the Design & Analysis metadata
   preamble and re-glues sample names containing unquoted commas.
 
-[Unreleased]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/SemiQuant/qPiCtuRes/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SemiQuant/qPiCtuRes/releases/tag/v0.1.0

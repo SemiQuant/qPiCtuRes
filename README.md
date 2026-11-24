@@ -12,6 +12,19 @@ of **relative quantities** (RQ = 2<sup>−ΔCq</sup>) against a chosen reference
 sample, with log-10 y-axis and asymmetric error bars propagated from the Cq
 SDs (Livak & Schmittgen, 2008).
 
+## Offline web app
+
+No Python? Download [`qpictures.html`](https://github.com/SemiQuant/qPiCtuRes/releases/latest/download/qpictures.html)
+from the latest release and open it in Chrome, Edge, Firefox or Safari. Drop a
+Well Results CSV or the `.eds` run file on it and you get the same relative,
+paired and standard-curve analyses as the CLI, with interactive charts (PNG and
+SVG downloads), a plate map to leave wells out and drag-to-reorder bars.
+
+The page is a single file that runs entirely in the browser: it needs no
+internet connection, and your data never leave your computer. Its calculations
+are tested against this package (the same tables to 13 significant digits, the
+same p-values to 9). It is built as one of the DrDx.Me offline tools.
+
 ## Install
 
 ### From PyPI (end users)
@@ -36,11 +49,14 @@ pip install -e ".[dev]"
 ## CLI
 
 ```text
-qpictures inspect    <input.csv>                      # per-sample Cq summary
-qpictures relative   <input.csv> -r BB_PBS [-t atpE]  # RQ vs one reference sample
-qpictures paired     <input.csv> -b BB    [-t atpE]   # per-condition paired RQ
-qpictures standcurve <input.csv>          [-t atpE]   # absolute Q from a std curve
+qpictures inspect    <input>                      # per-sample Cq summary
+qpictures relative   <input> -r BB_PBS [-t atpE]  # RQ vs one reference sample
+qpictures paired     <input> -b BB    [-t atpE]   # per-condition paired RQ
+qpictures standcurve <input>          [-t atpE]   # absolute Q from a std curve
 ```
+
+`<input>` is either a *Well Results* CSV or the `.eds` run file itself
+(see [Reading `.eds` files](#reading-eds-files)).
 
 ### `relative` — single reference sample
 
@@ -109,8 +125,8 @@ qpictures paired data/ex1/WellResult-2026-06-09-144852.csv \
 | `--tech-reps` | `3` | Technical replicates per biological replicate. `N = ceil(n_wells / tech_reps)`. Use `1` to report raw well counts. |
 | `--background-rem [NAME]` | off | Use a named control sample as a single global background threshold. Bare flag defaults to a sample called `control`; pass an explicit name (e.g. `--background-rem PBS`) to override. Lookup happens *before* the separator split, so a control sample without `_` (e.g. `Control`) is still found. Any (base, condition) row with a mean Cq above the control's mean Cq is flagged in `below_background` and dimmed in the plot. |
 | `--no-split` | off | Suppress splitting on `--separator`. Every sample is treated as its own base under one synthetic condition (`all`), and `--reference-base` must match a *full* sample name (e.g. `BB_pbs`). Equivalent to a single-reference comparison rendered through the paired layout. |
-| `--base-order TEXT` (repeatable) | auto | Explicit base ordering for bars / legend. Comma-separated and/or repeat the flag. Default: reference base first, then alphabetical. |
-| `--condition-order TEXT` (repeatable) | auto | Explicit condition ordering on the x-axis. Comma-separated and/or repeat the flag. Default: alphabetical. |
+| `--base-order TEXT` (repeatable) | auto | Explicit base ordering for bars / legend. Comma-separated and/or repeat the flag. Default: reference base first, then alphabetical. With `--no-split`, each full sample name is a base — use this to order samples left-to-right. |
+| `--condition-order TEXT` (repeatable) | auto | Explicit condition ordering on the x-axis. Comma-separated and/or repeat the flag. Default: alphabetical. Only applies when sample names are split into `base<sep>condition`; ignored for ordering in `--no-split` mode (there is only one synthetic condition, `all`). |
 | `--task TEXT` (repeatable) | `Unknown` | Which `Task` values to keep. |
 | `--all-tasks` | off | Keep every `Task`. |
 | `--no-log` | log10 on | Linear y-axis. |
@@ -149,6 +165,38 @@ qpictures paired data/ex1/WellResult-2026-06-09-14570.csv \
 qpictures paired data/ex1/WellResult-2026-06-09-14570.csv \
   --reference-base BB_pbs --no-split --background-rem Control
 ```
+
+#### Example: `--base-order` and `--condition-order`
+
+By default, conditions are sorted alphabetically on the x-axis and bases are
+reference-first then A–Z within each group. Override with comma-separated lists
+(names are matched case-insensitively):
+
+```bash
+# Sample names like BB_medium, turboLysis2001_medium, Nothing_low, ...
+qpictures paired data/WellResult-2026-07-10-112050.csv \
+  --reference-base BB \
+  --base-order BB,turboLysis2001,Nothing \
+  --condition-order medium,low \
+  --png \
+  --out results/TL_plusLife.html
+```
+
+With `--no-split`, every sample is its own base under a single synthetic
+condition (`all`). Use `--base-order` to set the left-to-right sample order
+(not `--condition-order`):
+
+```bash
+qpictures paired data/WellResult.csv \
+  --reference-base BB_PBS \
+  --no-split \
+  --base-order Control,BB_PBS,TL_PBS,BB_artificialSputumMild,TL_artificialSputumMild \
+  --png \
+  --out results/plot.html
+```
+
+The Python API accepts the same ordering via `base_order=` and
+`condition_order=` on `paired_relative_quantity_barplot`.
 
 #### Significance testing
 
@@ -284,7 +332,11 @@ pairs, summary = paired_relative_quantification(
     df, reference_base="BB", test="welch", padjust="none"
 )
 paired_relative_quantity_barplot(
-    pairs, reference_base=summary.reference_base_resolved, log_y=True
+    pairs,
+    reference_base=summary.reference_base_resolved,
+    base_order=["BB", "turboLysis2001", "Nothing"],
+    condition_order=["medium", "low"],
+    log_y=True,
 ).write_html("paired.html")
 
 # 3) Absolute quantification from a standard curve. The CSV here includes
@@ -346,3 +398,26 @@ The parser is tolerant of two common quirks:
 2. Sample names containing **unquoted commas** (e.g. `beads,3mm,WS, Slow`) are
    detected (row has more fields than the header) and re-glued into the
    `Sample` column.
+
+## Reading `.eds` files
+
+Every command, and `read_thermo_well_results()`, also takes a Design &
+Analysis `.eds` run file directly (`read_thermo_eds()` reads one explicitly):
+
+```bash
+qpictures paired run.eds -b BB --png --out results/run.html
+```
+
+The table matches the CSV export: sample names, targets, tasks and standard
+quantities come from the plate setup; Cq, Cq Conf, Amp Score, Amp Status and
+threshold come from the analysis stored in the file. Task labels follow the
+CSV (`Unknown`, `Standard`, `Negative Control (NTC)`), so the same `--task`
+filters work on both.
+
+- The run must have been analysed and saved in Design & Analysis. A file with
+  no stored analysis (never analysed, or saved by the older QuantStudio
+  Real-Time PCR software) is rejected with a message saying so.
+- If the plate setup changed after the last analysis (status `OBSOLETE`), a
+  warning is printed: the Cq values are the stored ones and may shift slightly
+  once re-analysed.
+- Wells omitted in the software stay omitted (`Omit == true`).
