@@ -121,6 +121,66 @@ def _filter_wells(
     return df
 
 
+_NTC_TASK = r"ntc|negative control|no[ _-]?template"
+_NTC_SAMPLE = r"^\s*(?:ntc|no[ _-]?template)"
+
+
+def _ntc_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows that are no-template controls: an NTC Task, or a sample named NTC / no template."""
+    mask = pd.Series(False, index=df.index)
+    if "Task" in df.columns:
+        mask |= df["Task"].astype(str).str.contains(_NTC_TASK, case=False, regex=True)
+    if "Sample" in df.columns:
+        mask |= df["Sample"].astype(str).str.contains(_NTC_SAMPLE, case=False, regex=True)
+    return mask
+
+
+def _cuttable_mask(df: pd.DataFrame) -> pd.Series:
+    """Sample wells a Cq cutoff applies to (not no-template wells, not standards)."""
+    mask = ~_ntc_mask(df)
+    if "Task" in df.columns:
+        mask &= ~df["Task"].astype(str).str.contains("standard", case=False, regex=False)
+    return mask
+
+
+def ntc_check(df: pd.DataFrame) -> pd.DataFrame:
+    """Targets whose no-template wells gave a Cq (possible contamination or primer dimers).
+
+    Pass a table read with ``tasks=None`` so the NTC wells are present. Returns one
+    row per affected target with ``Target``, ``wells`` (NTC wells), ``amplified``
+    (those with a Cq), ``min_cq`` (the earliest NTC Cq) and ``late`` (sample wells
+    with a Cq at or after ``min_cq``). Empty when no NTC amplified.
+    """
+    cols = ["Target", "wells", "amplified", "min_cq", "late"]
+    if "Cq" not in df.columns or "Target" not in df.columns:
+        return pd.DataFrame(columns=cols)
+    ntc = _ntc_mask(df)
+    samples = _cuttable_mask(df)
+    rows = []
+    for target, grp in df.groupby("Target", dropna=False, sort=False):
+        n = ntc.loc[grp.index]
+        amp = grp.loc[n & grp["Cq"].notna(), "Cq"]
+        if amp.empty:
+            continue
+        smp = grp.loc[samples.loc[grp.index] & grp["Cq"].notna(), "Cq"]
+        rows.append({"Target": target, "wells": int(n.sum()), "amplified": int(len(amp)),
+                     "min_cq": float(amp.min()), "late": int((smp >= amp.min()).sum())})
+    return pd.DataFrame(rows, columns=cols)
+
+
+def apply_cq_cutoff(df: pd.DataFrame, cutoff: float | None) -> pd.DataFrame:
+    """Count sample wells with ``Cq >= cutoff`` as not amplified (Cq becomes NaN).
+
+    Standards and no-template wells are left alone. ``None`` returns ``df`` unchanged.
+    """
+    if cutoff is None or "Cq" not in df.columns:
+        return df
+    out = df.copy()
+    late = _cuttable_mask(out) & (out["Cq"] >= cutoff)
+    out.loc[late, "Cq"] = float("nan")
+    return out
+
+
 def read_thermo_well_results(
     path: str | Path,
     *,

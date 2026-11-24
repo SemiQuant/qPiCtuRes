@@ -6,6 +6,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-24
+
+### Added
+
+- No-template control check. Every command warns when the NTC wells of a target
+  gave a Cq (possible contamination or primer dimers), with the earliest NTC Cq
+  and how many sample wells have a Cq at or after it, even when `--task` drops
+  the NTC wells. New `ntc_check` in the Python API.
+- `--cq-cutoff CYCLES|ntc` on `inspect`, `relative`, `paired` and `standcurve`:
+  sample wells with a Cq at or after the cutoff count as not amplified (standards
+  and NTC wells are left alone); `ntc` uses the earliest NTC Cq. New
+  `apply_cq_cutoff` in the Python API.
+- The offline web app shows a dialog on load when the NTC amplified, offering the
+  earliest NTC Cq as a cutoff, and has a Cq cutoff box on the Data tab.
+
 ## [1.2.0] - 2026-11-24
 
 ### Added

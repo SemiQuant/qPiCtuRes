@@ -18,7 +18,7 @@ from .analysis import (
     paired_relative_quantification,
     relative_quantification,
 )
-from .io import read_thermo_well_results
+from .io import _filter_wells, apply_cq_cutoff, ntc_check, read_thermo_well_results
 from .plot import (
     absolute_quantity_barplot,
     paired_relative_quantity_barplot,
@@ -35,12 +35,17 @@ console = Console()
 _AUTO_PATH = "<auto>"
 
 
-def _read_input(path: Path, **kwargs) -> pd.DataFrame:
-    """Read a Well-Results CSV, .eds file or CFX export, reporting problems without a traceback."""
+def _read_input(path: Path, *, tasks=("Unknown",), keep_undetermined: bool = False,
+                cq_cutoff: float | None = None) -> pd.DataFrame:
+    """Read a Well-Results CSV, .eds file or CFX export, reporting problems without a traceback.
+
+    Warns when the no-template wells amplified. ``cq_cutoff`` counts sample wells at
+    or after that Cq as not amplified.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         try:
-            df = read_thermo_well_results(path, **kwargs)
+            df = read_thermo_well_results(path, tasks=None, keep_undetermined=True)
         except ValueError as exc:
             click.echo()
             console.print(f"[bold red]Error:[/bold red] {exc}")
@@ -48,7 +53,48 @@ def _read_input(path: Path, **kwargs) -> pd.DataFrame:
     for w in caught:
         click.echo()
         console.print(f"[bold yellow]Warning:[/bold yellow] {w.message}")
-    return df
+    flagged = ntc_check(df)
+    if isinstance(cq_cutoff, str):  # "ntc"
+        if flagged.empty:
+            click.echo()
+            console.print("[bold yellow]Warning:[/bold yellow] --cq-cutoff ntc: no no-template well "
+                          "amplified, so no cutoff is applied.")
+            cq_cutoff = None
+        else:
+            cq_cutoff = float(flagged["min_cq"].min())
+    for row in flagged.itertuples():
+        click.echo()
+        console.print(
+            f"[bold yellow]Warning:[/bold yellow] amplification in the no-template control "
+            f"for {row.Target}: {row.amplified} of {row.wells} wells gave a Cq (earliest "
+            f"{row.min_cq:.2f}); {row.late} sample wells have a Cq at or after it. This can be "
+            f"contamination or primer dimers. "
+            + ("" if cq_cutoff is not None else
+               f"Use --cq-cutoff {row.min_cq:.1f} (or --cq-cutoff ntc) to count those wells as not amplified.")
+        )
+    df = apply_cq_cutoff(df, cq_cutoff)
+    return _filter_wells(df, drop_omitted=False, keep_undetermined=keep_undetermined, tasks=tasks)
+
+
+def _parse_cutoff(ctx, param, value):
+    """--cq-cutoff takes a number of cycles, or ``ntc`` for the earliest no-template Cq."""
+    if value is None:
+        return None
+    if str(value).strip().lower() == "ntc":
+        return "ntc"
+    try:
+        return float(value)
+    except ValueError:
+        raise click.BadParameter("give a number of cycles or 'ntc'")
+
+
+def _cutoff_option(func):
+    return click.option(
+        "--cq-cutoff", "cq_cutoff", default=None, callback=_parse_cutoff, metavar="CYCLES|ntc",
+        help="Count sample wells with a Cq at or after this as not amplified (standards and "
+             "no-template wells are left alone). 'ntc' uses the earliest Cq in the no-template "
+             "wells. Default: no cutoff.",
+    )(func)
 
 
 def _default_out(input_path: Path, kind: str) -> Path:
@@ -228,13 +274,14 @@ def cli() -> None:
 @click.option("--keep-undetermined", is_flag=True,
               help="Keep wells with Undetermined Cq in the table.")
 @_tasks_option()
+@_cutoff_option
 def inspect_cmd(input_csv: Path, keep_undetermined: bool,
-                task_filter: tuple[str, ...], all_tasks: bool) -> None:
+                task_filter: tuple[str, ...], all_tasks: bool, cq_cutoff) -> None:
     """Show a quick summary of a Well-Results CSV, .eds run file or CFX export."""
     tasks = _resolve_tasks(task_filter, all_tasks)
     with click.progressbar(length=3, label="Reading", show_eta=False) as bar:
         df = _read_input(
-            input_csv, keep_undetermined=keep_undetermined, tasks=tasks
+            input_csv, keep_undetermined=keep_undetermined, tasks=tasks, cq_cutoff=cq_cutoff
         )
         bar.update(1)
         targets = sorted(df["Target"].dropna().unique().tolist())
@@ -296,6 +343,7 @@ def inspect_cmd(input_csv: Path, keep_undetermined: bool,
          "with `below_background` and dimmed in the table and plot.",
 )
 @_tasks_option()
+@_cutoff_option
 @_image_export_options
 def relative_cmd(
     input_csv: Path,
@@ -314,6 +362,7 @@ def relative_cmd(
     background_rem: str | None,
     task_filter: tuple[str, ...],
     all_tasks: bool,
+    cq_cutoff,
     pdf_out: str | None,
     png_out: str | None,
     svg_out: str | None,
@@ -326,7 +375,7 @@ def relative_cmd(
     with click.progressbar(steps, label="qpictures relative",
                            item_show_func=lambda s: s or "") as bar:
         bar.update(0)
-        df = _read_input(input_csv, tasks=tasks)
+        df = _read_input(input_csv, tasks=tasks, cq_cutoff=cq_cutoff)
         bar.update(1)
 
         try:
@@ -479,6 +528,7 @@ def relative_cmd(
          "list and/or repeat the flag. Case-insensitive. Default: alphabetical.",
 )
 @_tasks_option()
+@_cutoff_option
 @_image_export_options
 def paired_cmd(
     input_csv: Path,
@@ -501,6 +551,7 @@ def paired_cmd(
     condition_order: tuple[str, ...],
     task_filter: tuple[str, ...],
     all_tasks: bool,
+    cq_cutoff,
     pdf_out: str | None,
     png_out: str | None,
     svg_out: str | None,
@@ -517,7 +568,7 @@ def paired_cmd(
     with click.progressbar(steps, label="qpictures paired",
                            item_show_func=lambda s: s or "") as bar:
         bar.update(0)
-        df = _read_input(input_csv, tasks=tasks)
+        df = _read_input(input_csv, tasks=tasks, cq_cutoff=cq_cutoff)
         bar.update(1)
 
         try:
@@ -718,6 +769,7 @@ def paired_cmd(
          "unknown tasks, which are always kept). Pass multiple times to "
          "include several.",
 )
+@_cutoff_option
 @_image_export_options
 def standcurve_cmd(
     input_csv: Path,
@@ -737,6 +789,7 @@ def standcurve_cmd(
     unknown_task: str,
     background_rem: str | None,
     extra_tasks: tuple[str, ...],
+    cq_cutoff,
     pdf_out: str | None,
     png_out: str | None,
     svg_out: str | None,
@@ -756,7 +809,7 @@ def standcurve_cmd(
     with click.progressbar(steps, label="qpictures standcurve",
                            item_show_func=lambda s: s or "") as bar:
         bar.update(0)
-        df = _read_input(input_csv, tasks=tasks)
+        df = _read_input(input_csv, tasks=tasks, cq_cutoff=cq_cutoff)
         bar.update(1)
 
         try:

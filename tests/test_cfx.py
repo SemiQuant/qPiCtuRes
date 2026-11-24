@@ -166,3 +166,29 @@ def test_default_output_names(tmp_path, monkeypatch):
     monkeypatch.chdir(run)
     assert _default_out(Path("."), "paired") == tmp_path / "exp 1.5.paired.html"
     assert _default_out(Path("x.csv"), "standcurve").name == "x.standcurve.html"
+
+
+def test_ntc_check_and_cutoff(tmp_path):
+    from click.testing import CliRunner
+
+    from qpictures import apply_cq_cutoff, ntc_check, read_thermo_well_results
+    from qpictures.cli import cli
+
+    rows = [
+        ("A1", "S1", "Unknown", "20.1"), ("A2", "S1", "Unknown", "20.3"),
+        ("A3", "S2", "Unknown", "36.0"), ("A4", "S2", "Unknown", "38.5"),
+        ("A5", "NTC", "Negative Control (NTC)", "37.2"),
+        ("A6", "NTC", "Negative Control (NTC)", "Undetermined"),
+    ]
+    path = tmp_path / "ntc.csv"
+    path.write_text("Well,Omit,Sample,Target,Task,Dyes,Cq\n" + "\n".join(
+        f"{w},false,{s},T1,{t},FAM,{c}" for w, s, t, c in rows) + "\n")
+    df = read_thermo_well_results(path, tasks=None, keep_undetermined=True)
+    flags = ntc_check(df)
+    assert flags.iloc[0].to_dict() == {"Target": "T1", "wells": 2, "amplified": 1, "min_cq": 37.2, "late": 1}
+    cut = apply_cq_cutoff(df, 37.2)
+    assert cut["Cq"].isna().sum() == df["Cq"].isna().sum() + 1
+    assert cut.loc[cut["Sample"] == "NTC", "Cq"].notna().sum() == 1
+    res = CliRunner().invoke(cli, ["inspect", str(path), "--cq-cutoff", "ntc"])
+    assert res.exit_code == 0, res.output
+    assert "no-template control" in res.output

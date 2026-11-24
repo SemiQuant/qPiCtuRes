@@ -94,6 +94,7 @@ Useful flags:
 | `--background-rem [NAME]` | off | Use a named control sample as the background threshold. As a bare flag it looks up a sample called `control` (case-insensitive); pass an explicit name to override, e.g. `--background-rem PBS`. Any sample whose mean Cq exceeds the control's mean Cq is flagged with a `below_background` column and rendered as a dimmed grey bar. The control is **independent of `--reference`**, so you can normalize against one sample and threshold against another. |
 | `--task TEXT` (repeatable) | `Unknown` | Which `Task` values to keep. |
 | `--all-tasks` | off | Keep every `Task` (NTC / standards / etc.). |
+| `--cq-cutoff CYCLES\|ntc` | off | Count sample wells with a Cq at or after this as not amplified (standards and no-template wells are left alone). `ntc` uses the earliest Cq in the no-template wells. Every command also warns when the no-template wells amplified, whatever `--task` keeps. |
 | `--no-log` | log10 on | Linear y-axis instead of log10. |
 | `--no-open` | opens | Do not auto-open the resulting HTML. |
 
